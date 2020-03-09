@@ -1,0 +1,218 @@
+library(Quandl)
+library(tidyverse)
+library(dplyr)
+library(tidytext)
+library(jsonlite)
+library(SentimentAnalysis) # https://cran.r-project.org/web/packages/SentimentAnalysis/SentimentAnalysis.pdf
+library(readr)
+library(httr)
+library(magrittr)
+
+
+# Data GI - Harvard
+data(DictionaryGI) 
+
+
+#lexicon (nrc,bing,afinn) fra tidytext
+get_sentiments("afinn")
+
+
+
+Yahoof_data_dowJ <- read.csv("Yahoof_data_dowJ.csv")
+
+
+
+
+# Scrap NYT ---------------------------------------------------------------
+
+
+#################################################################################
+####            function - search news article with API                      ####
+
+
+#dt = nytime('donald trump',2018)
+#xi = nytime('xi jinping',2018)
+
+#write.csv(dt, "NYT news_donald trump.csv")
+#write.csv(xi, "NYT news_xi jinping.csv")
+
+#dt = read.csv("NYT news_donald trump.csv",header=T,stringsAsFactors = F)
+#xi = read.csv("NYT news_xi jinping.csv",header=T,stringsAsFactors = F)
+
+
+# Full search with facet --------------------------------------------------
+api="bh4A7qupXodlVagYpZ0MHafg5BcrwgPC"
+
+nytime1 = function (keyword,year) {
+  searchQ = URLencode(keyword)
+  url = paste('http://api.nytimes.com/svc/search/v2/articlesearch.json?q=',searchQ,
+              '&begin_date=',year,'0101&end_date=',year,'0330&api-key=',api,sep="")
+  #get the total number of search results
+  initialsearch = fromJSON(url,flatten = T)
+  maxPages = round((initialsearch$response$meta$hits / 10)-1)
+  
+  #try with the max page limit at 10
+  maxPages = ifelse(maxPages >= 10, 10, maxPages)
+  
+  #creat a empty data frame
+  df = data.frame(id=as.numeric(),created_time=character(),snippet=character(),
+                  headline=character())
+  
+  #save search results into data frame
+  for(i in 0:maxPages){
+    #get the search results of each page
+    nytSearch = fromJSON(paste0(url, "&page=", i), flatten = T) 
+    temp = data.frame(id=1:nrow(nytSearch$response$docs),
+                      created_time = nytSearch$response$docs$pub_date,
+                      snippet = nytSearch$response$docs$snippet,
+                      headline = nytSearch$response$docs$headline.main)
+    df=rbind(df,temp)
+    Sys.sleep(5) #sleep for 5 second
+  }
+  return(df)
+}
+
+nyt_search2 = function (keyword, year, section){
+  searchQ = URLencode(keyword)
+  searchFQ = URLencode(section)
+  url = paste('http://api.nytimes.com/svc/search/v2/articlesearch.json?q=',searchQ,
+              '&fq=section_name=',searchFQ,'&begin_date=',year,'0101&end_date=',year,'0330&&api-key=',api,sep="")
+  ##convert json to R object
+  initialQuery = fromJSON(url,flatten=TRUE)
+  maxPages = round((initialQuery$response$meta$hits / 10)-1)
+  maxPages = ifelse(maxPages >= 99, 99, maxPages)
+  
+  #download all the data and transform into R obj
+  df = data.frame(created_time=character(),snippet=character(),headline=character())
+  for(i in 0:maxPages){
+    nytSearch <- fromJSON(paste0(url, "&page=", i))
+    temp = data.frame(created_time = nytSearch$response$docs$pub_date,
+                      snippet = nytSearch$response$docs$snippet,
+                      headline = nytSearch$response$docs$headline$main,
+                      stringsAsFactors = F)
+    df = rbind(df,temp)
+    Sys.sleep(5) #sleep for 5 seconds
+  }
+  return(df)
+}
+
+nyt_search1 = function (keyword, year, section){
+  searchQ = URLencode(keyword)
+  searchFQ = URLencode(section)
+  url = paste('http://api.nytimes.com/svc/search/v2/articlesearch.json?q=',searchQ,
+              '&fq=section_name=',searchFQ,'&begin_date=',year,'0330&end_date=',year,'0730&&api-key=',api,sep="")
+  ##convert json to R object
+  initialQuery = fromJSON(url,flatten=TRUE)
+  maxPages = round((initialQuery$response$meta$hits / 10)-1)
+  maxPages = ifelse(maxPages >= 99, 99, maxPages)
+  
+  #download all the data and transform into R obj
+  df = data.frame(created_time=character(),snippet=character(),headline=character())
+  for(i in 0:maxPages){
+    nytSearch <- fromJSON(paste0(url, "&page=", i))
+    temp = data.frame(created_time = nytSearch$response$docs$pub_date,
+                      snippet = nytSearch$response$docs$snippet,
+                      headline = nytSearch$response$docs$headline$main,
+                      stringsAsFactors = F)
+    df = rbind(df,temp)
+    Sys.sleep(5) #sleep for 5 seconds
+  }
+  return(df)
+}
+
+
+nyt_search3 = function (keyword, year, section){
+  searchQ = URLencode(keyword)
+  searchFQ = URLencode(section)
+  url = paste('http://api.nytimes.com/svc/search/v2/articlesearch.json?q=',searchQ,
+              '&fq=section_name=',searchFQ,'&begin_date=',year,'0730&end_date=',year,'1231&&api-key=',api,sep="")
+  ##convert json to R object
+  initialQuery = fromJSON(url,flatten=TRUE)
+  maxPages = round((initialQuery$response$meta$hits / 10)-1)
+  maxPages = ifelse(maxPages >= 99, 99, maxPages)
+  
+  #download all the data and transform into R obj
+  df = data.frame(created_time=character(),snippet=character(),headline=character())
+  for(i in 0:maxPages){
+    nytSearch <- fromJSON(paste0(url, "&page=", i))
+    temp = data.frame(created_time = nytSearch$response$docs$pub_date,
+                      snippet = nytSearch$response$docs$snippet,
+                      headline = nytSearch$response$docs$headline$main,
+                      stringsAsFactors = F)
+    df = rbind(df,temp)
+    Sys.sleep(5) #sleep for 5 seconds
+  }
+  return(df)
+}
+
+
+# Sidelights from Wall Street
+# Financial and Business Sidelights of the Day
+# Market Place
+# section_name news_desk
+
+# Business National World US Politics Foreign 
+df1 = data.frame(id=character(),created_time=character(),snippet=character(),headline=character())
+
+for (i in 2017:2019) {
+  tmp1 <-  nytime('market',i)
+  df1 <- rbind(df1,tmp1)
+  Sys.sleep(360)
+}
+
+DB_19_fa = nyt_search2('market',2019, "business day")
+
+#write.csv(dt, "NYT news_donald trump.csv")
+#write.csv(xi, "NYT news_xi jinping.csv")
+
+ # markets virker - tror søgninger med to ord giver problemer. 
+ # DealBook 
+
+df2 = data.frame(created_time=character(),snippet=character(),headline=character())
+t1 <- Sys.time()
+for (i in 2011:2019) {
+  tmp2 <-  nyt_search2('market',i, "business day")
+  df2 <- rbind(df2,tmp2)
+Sys.sleep(360)
+}
+t2 <- Sys.time()
+#write.csv(df2, "")
+
+df1 = data.frame(created_time=character(),snippet=character(),headline=character())
+
+for (i in 2011:2019) {
+  tmp1 <-  nyt_search1('market',i, "business day")
+  df1 <- rbind(df1,tmp1)
+  Sys.sleep(360)
+}
+#write.csv(df1, "")
+
+ df3 = data.frame(created_time=character(),snippet=character(),headline=character())
+
+for (i in 2011:2019) {
+  tmp3 <-  nyt_search3('market',i, "business day")
+  df3 <- rbind(df3,tmp3)
+  Sys.sleep(360)
+}
+
+# write.csv(df3, "")
+ 
+ 
+ df4 = data.frame(created_time=character(),snippet=character(),headline=character())
+ 
+ for (i in 2011:2019) {
+   tmp4 <-  nytime1('economy',i)
+   df4 <- rbind(df4,tmp4)
+   Sys.sleep(120)
+ }
+
+df_test <- nytime1("economy",2018)
+df_test1 <- nyt_search1("",2018,"Business")
+ 
+ df_full<-rbind(df1,df2,df3)
+
+
+# NLP ---------------------------------------------------------------------
+ df_full$created_time %<>% as.Date() 
+ 
+ dftidy %>% 
