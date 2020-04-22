@@ -26,6 +26,8 @@ library(lubridate)
 library(tsbox)
 library(aTSA)
 library(sandwich)
+library(pls)
+library(imputeTS)
 
 
 # Data GI - Harvard
@@ -57,7 +59,7 @@ df_econ$created_time %<>% as.Date()
 df_market$created_time %<>% as.Date() 
 
 
-df_full <- rbind(df_market)
+df_full <- rbind(df_market, df_econ)
 df_full<-df_full[!duplicated(df_full$text), ]
 
 # NLP ---------------------------------------------------------------------
@@ -300,6 +302,13 @@ hist(dowJ_i$Volume, breaks = 20, freq = FALSE, col = "grey")
 dowJ_i <- dowJ_i %>% 
   arrange(Date)
 
+dowJ_i <- dowJ_i[-1,]
+
+PL<-plsr(chg_price ~ lag(score_p) + lag(score_n) + lag(score_l) + lag(score_s) + lag(score_c) +lag(score_u), ncomp = 1, data = dowJ_i, validation = "CV")
+PLSc<-  as.vector(rbind(0,PL$scores))
+
+dowJ_i <- cbind(dowJ_i,PLSc) 
+
 # adf.test ----------------------------------------------------------------
 
 adf.test(dowJ_i$Volume, nlag = 5)
@@ -314,7 +323,7 @@ ts.plot(diff(dowJ_i$Volume))
 # Granger-test ------------------------------------------------------------
 
 
-grangertest(chg_price ~ score, order=5, na.action= na.omit , data=dowJ_i) 
+grangertest(chg_price ~ score_n, order=5, na.action= na.omit , data=dowJ_i) 
 
 
 # ARCH/GARCH --------------------------------------------------------------
@@ -345,14 +354,14 @@ garchforecast1 <- ugarchforecast(spec, n.ahead = 1, n.roll = 2262, data = dowJ_i
 
 fVAR <- dowJ_i %>% 
   arrange(Date) %>% 
-  dplyr::select(chg_price, score_p, Volume) %>% 
+  dplyr::select(chg_price,pc) %>% 
   mutate_if(is.numeric,~replace(., is.na(.), 0)) 
 
 #fVAR <- cbind(fVAR,GARCH)
 
 fVAR1 <- dowJ_i %>% 
   arrange(Date) %>% 
-  dplyr::select(chg_price, Volume) %>% 
+  dplyr::select(chg_price, Vlm) %>% 
   mutate_if(is.numeric,~replace(., is.na(.), 0)) 
 
 
@@ -366,6 +375,7 @@ VARselect(fVAR)
 OO <- VAR(fVAR, p =5, exogen = cbind(garch=GARCH,monday=dowJ_i$weekday_Monday, tuesday=dowJ_i$weekday_Tuesday, wednesday=dowJ_i$weekday_Wednesday, thursday=dowJ_i$weekday_Thursday))
 summary(OO)
 
+causality(OO, cause = "score_n")
 
 #for (i in 763) {
 # monday= dowJ_i$weekday_Monday[-c(1:i)]
@@ -378,23 +388,17 @@ summary(OO)
 
 
 for (i in 0:1500) {
-    train = fVAR[1:(763+i), ]
-    monday= dowJ_i$weekday_Monday[1:(763+i)]
-    tuesday=dowJ_i$weekday_Tuesday[1:(763+i)]
-    wednesday=dowJ_i$weekday_Wednesday[1:(763+i)]
-    thursday=dowJ_i$weekday_Thursday[1:(763+i)]
-    VARf <- VAR(train, p=5, exogen = cbind(monday=monday, tuesday = tuesday, wednesday = wednesday, thursday = thursday))
-    recursive = predict(VARf, n.ahead=1, dumvar = cbind(monday=monday[(763+i)], tuesday = tuesday[(763+i)], wednesday = wednesday[(763+i)], thursday = thursday[(763+i)]))
-    fcst=recursive$fcst$chg_price[1,"fcst"]
-    v[i+1]=fcst
-  }
-
-for (i in 0:1500) {
   train = fVAR[1:(763+i), ]
-  VARf <- VAR(train, p=5)
-  recursive = predict(VARf, n.ahead=1)
+  monday= dowJ_i$weekday_Monday[1:(763+i)]
+  tuesday=dowJ_i$weekday_Tuesday[1:(763+i)]
+  wednesday=dowJ_i$weekday_Wednesday[1:(763+i)]
+  thursday=dowJ_i$weekday_Thursday[1:(763+i)]
+  garch = ugarchfit(spec = spec, data = dowJ_i$chg_price[1:(763+i)], solver = "hybrid")
+  GARCH=garch@fit$sigma[1:(763+i)]
+  VARf <- VAR(train, p=5, exogen = cbind(monday=monday, tuesday = tuesday, wednesday = wednesday, thursday = thursday, GARCH = GARCH))
+  recursive = predict(VARf, n.ahead=1, dumvar = cbind(monday=monday[(763+i)], tuesday = tuesday[(763+i)], wednesday = wednesday[(763+i)], thursday = thursday[(763+i)], GARCH = GARCH[(763+i)]))
   fcst=recursive$fcst$chg_price[1,"fcst"]
-  v1[i+1]=fcst
+  v[i+1]=fcst
 }
 
 for (i in 0:1500) {
@@ -403,19 +407,61 @@ for (i in 0:1500) {
   tuesday=dowJ_i$weekday_Tuesday[1:(763+i)]
   wednesday=dowJ_i$weekday_Wednesday[1:(763+i)]
   thursday=dowJ_i$weekday_Thursday[1:(763+i)]
-  VARf <- VAR(train, p=5, exogen = cbind(monday=monday, tuesday = tuesday, wednesday = wednesday, thursday = thursday))
-  recursive = predict(VARf, n.ahead=1, dumvar = cbind(monday=monday[(763+i)], tuesday = tuesday[(763+i)], wednesday = wednesday[(763+i)], thursday = thursday[(763+i)]))
+  garch = ugarchfit(spec = spec, data = dowJ_i$chg_price[1:(763+i)], solver = "hybrid")
+  GARCH=garch@fit$sigma[1:(763+i)]
+  VARf <- VAR(train, p=5, exogen = cbind(monday=monday, tuesday = tuesday, wednesday = wednesday, thursday = thursday, GARCH = GARCH))
+  recursive = predict(VARf, n.ahead=1, dumvar = cbind(monday=monday[(763+i)], tuesday = tuesday[(763+i)], wednesday = wednesday[(763+i)], thursday = thursday[(763+i)], GARCH = GARCH[(763+i)]))
   fcst=recursive$fcst$chg_price[1,"fcst"]
+  v1[i+1]=fcst
+}
+
+for (i in 0:1500) {
+  train = dowJ_i$chg_price[1:(763+i)]
+  monday= dowJ_i$weekday_Monday[1:(763+i)]
+  tuesday=dowJ_i$weekday_Tuesday[1:(763+i)]
+  wednesday=dowJ_i$weekday_Wednesday[1:(763+i)]
+  thursday=dowJ_i$weekday_Thursday[1:(763+i)]
+  garch = ugarchfit(spec = spec, data = dowJ_i$chg_price[1:(763+i)], solver = "hybrid")
+  GARCH=garch@fit$sigma[1:(763+i)]
+  VARf <- arima(train, order = c(1, 0, 0), xreg = cbind(monday=monday, tuesday = tuesday, wednesday = wednesday, thursday = thursday, GARCH = GARCH))
+  recursive = predict(VARf, n.ahead=1, newxreg  = cbind(monday=monday[(763+i)], tuesday = tuesday[(763+i)], wednesday = wednesday[(763+i)], thursday = thursday[(763+i)], GARCH = GARCH[(763+i)]))
+  fcst=recursive$pred
   v2[i+1]=fcst
 }
+
+
+v3=c(NA) 
+
+fVAR2 <- dowJ_i %>% 
+  arrange(Date) %>% 
+  dplyr::select(chg_price) %>% 
+  mutate_if(is.numeric,~replace(., is.na(.), 0)) 
+
+for (i in 0:1500) {
+  trainz <-  dowJ_i[1:(763+i),]
+  CC<-plsr(lead(chg_price) ~ score_p + score_n + score_l + score_s + score_c +score_u, ncomp = 1, data = trainz, validation = "CV")
+  CCs <- CC$score
+  PLS1<-rbind(0,CCs)
+  train = fVAR1[1:(763+i), ]
+  train = cbind(train, PLS1)
+  monday= dowJ_i$weekday_Monday[1:(763+i)]
+  tuesday=dowJ_i$weekday_Tuesday[1:(763+i)]
+  wednesday=dowJ_i$weekday_Wednesday[1:(763+i)]
+  thursday=dowJ_i$weekday_Thursday[1:(763+i)]
+  garch = ugarchfit(spec = spec, data = dowJ_i$chg_price[1:(763+i)], solver = "hybrid")
+  GARCH=garch@fit$sigma[1:(763+i)]
+  VARf <- VAR(train, p=2, exogen = cbind(monday=monday, tuesday = tuesday, wednesday = wednesday, thursday = thursday, GARCH = GARCH))
+  recursive = predict(VARf, n.ahead=1, dumvar = cbind(monday=monday[(763+i)], tuesday = tuesday[(763+i)], wednesday = wednesday[(763+i)], thursday = thursday[(763+i)], GARCH = GARCH[(763+i)]))
+  fcst=recursive$fcst$chg_price[1,"fcst"]
+  v3[i+1]=fcst
+}
+
+
+
 
 # Results / Comparison ----------------------------------------------------
 
 com<- dowJ_i[763:2263,"chg_price"]
-
- MDirAcc <- function(Actual, Forecast, lag=1) {
-   return( mean(sign(diff(Actual, lag=lag))==sign(diff(Forecast, lag=lag))) )
- }
 
  accuracy(v[-1501],com[-1501])
  accuracy(v1[-1501],com[-1501])
@@ -425,13 +471,24 @@ com<- dowJ_i[763:2263,"chg_price"]
  DACTest(v1[-1501],com[-1501])
  DACTest(v2[-1501],com[-1501])
  
- MDirAcc(v[-1501],com[-1501])
- MDirAcc(v1[-1501],com[-1501]) 
- MDirAcc(v2[-1501],com[-1501]) 
-
  mse(v,com)
  mse(v1,com)
+ mse(v2,com)
  
 kk <-VAR(fVAR, p= 5)
 
 hat <- cbind(v,com)
+
+library(BigVAR)
+
+fVAR2 <- dowJ_i %>% 
+  arrange(Date) %>% 
+  dplyr::select(chg_price,pc, score, score_p, score_n, pc, score_c) %>% 
+  mutate_if(is.numeric,~replace(., is.na(.), 0)) 
+
+BV<-constructModel(as.matrix(fVAR2), p=5, "Basic",gran = c(50,10))
+BV<-BigVAR.fit(as.matrix(fVAR2), p=5, "Basic", lambda = 1e-2)
+summary(BV)
+BigVAR.est(object = BV)
+
+
